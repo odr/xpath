@@ -49,7 +49,7 @@ data FilterExpr = FE PrimaryExpr [Predicate]
             deriving Show
                   
 data PrimaryExpr = VR Name
-                   | Expr Expr
+                  --- | Expr Expr
                    | Lit T.Text
                    | Num Pico
                    | FC Name [Expr] 
