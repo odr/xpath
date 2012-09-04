@@ -21,7 +21,7 @@ data AxisName = Child | Descendant | Self | FollowingSibling | Following | Desce
             deriving Show
 
 
-data NodeTest = Any | NodeTest T.Text (Maybe T.Text) | Comment | Text | ProcIns (Maybe T.Text) | Node 
+data NodeTest = NameTest (Maybe T.Text) (Maybe T.Text) | Comment | Text | ProcIns (Maybe T.Text) | Node 
             deriving Show
 
 type Predicate = Expr

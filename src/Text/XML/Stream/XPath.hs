@@ -21,7 +21,7 @@ lexeme :: Parser a -> Parser a
 lexeme p = spaces *> p <* spaces
 
 lexb :: T.Text -> T.Text -> Parser a -> Parser a
-lexb t1 t2 p = lexeme $ string t1 *> lexeme p <* string t2 
+lexb t1 t2 p = lexc t1 *> p <* lexc t2 
 
 bracket :: Parser a -> Parser a
 bracket = lexb "(" ")"
@@ -38,13 +38,12 @@ choiceConst = choice . map (\(s,c) -> c <$ lexc s)
 {-
 dot :: Parser ()
 dot = lexc "."
--}
 dot2 :: Parser ()
 dot2 = lexc ".."
 
-
 at' :: Parser ()
 at' = lexc "@"
+-}
 
 comma :: Parser ()
 comma = lexc " "
@@ -74,8 +73,8 @@ abb = choiceConst [("//", (://)), ("/", (:/))] <|> pure RLP
         
 step :: Parser Step
 step = choice [
-          choiceConst [("..", Step Parent Any Nothing), (".", Step Self Any Nothing)]
-        , Step <$> choice [ at' *> pure Attribute 
+          choiceConst [("..", Step Parent (NameTest Nothing Nothing) Nothing), (".", Step Self (NameTest Nothing Nothing) Nothing)]
+        , Step <$> choice [ lexc "@" *> pure Attribute 
                            , axisName <* dot4 
                            , pure Child ] <*> nodeTest <*> optionMaybe predicate
     ]
@@ -98,13 +97,15 @@ axisName        = choiceConst
 
 nodeTest :: Parser NodeTest                
 nodeTest        = choice
-                [ choiceConst [("*", Any)]
+                [ choiceConst [("*", NameTest Nothing Nothing)]
+                , choice [ NameTest <$> (Just <$> ncName) <*> (lexc ":" *> choice [ lexc "*" *> pure Nothing
+                                                                                    , Just <$> ncName ])
+                         , NameTest Nothing <$> (Just <$> ncName) ]
                 , choiceBracket [ ("comment", Comment)
                                 , ("node", Node)
                                 , ("text", Text)
                                 , ("processing-instruction", ProcIns Nothing) ]                 
-                , (ProcIns . Just) <$> (lexc "processing-instruction" *> bracket literal)
-                ]
+                , (ProcIns . Just) <$> (lexc "processing-instruction" *> bracket literal) ]
     where
         choiceBracket :: [(T.Text, a)] -> Parser a 
         choiceBracket = choice . map (\(a,b) -> b <$ (lexc a *> bracket spaces))
@@ -129,7 +130,7 @@ qName :: Parser Name
 qName = (\n1 n2 -> Name { nameLocalName = n2
                          , namePrefix = n1
                          , nameNamespace = Nothing }
-                ) <$> optionMaybe (ncName <* dot2) <*> ncName
+                ) <$> optionMaybe (ncName <* lexc ":") <*> ncName
 
 predicate :: Parser Expr
 predicate = square expr
@@ -159,17 +160,17 @@ unionExpr :: Parser Expr
 unionExpr = chainExp' pathExpr [[("|", (:|:))]]
 
 pathExpr :: Parser Expr
-pathExpr = choice [ ELP <$> locationPath
-                  , EFE <$> filterExpr <*> many ((,) <$> abb <*> step) ]
+pathExpr = choice [ EFE <$> filterExpr <*> many ((,) <$> abb <*> step)
+                  , ELP <$> locationPath ]
 
 filterExpr :: Parser FilterExpr
 filterExpr = FE <$> pe <*> many predicate
     where 
         pe = choice [ VR <$> (lexc "$" *> qName)
                     , Expr <$> bracket expr
-                    , Lit <$> literal
                     , Num <$> numberXP
-                    , FC <$> qName <*> bracket (expr `sepBy` comma) ]
+                    , FC <$> qName <*> bracket (expr `sepBy` comma)
+                    , Lit <$> literal ]
      
 {-
 orExpr = chainExp orExpr andExpr [("or", (:||:))]
