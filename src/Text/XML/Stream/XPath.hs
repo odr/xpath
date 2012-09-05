@@ -35,22 +35,6 @@ lexc = (() <$) . lexeme . string
 choiceConst :: [(T.Text, a)] -> Parser a
 choiceConst = choice . map (\(s,c) -> c <$ lexc s)
 
-{-
-dot :: Parser ()
-dot = lexc "."
-dot2 :: Parser ()
-dot2 = lexc ".."
-
-at' :: Parser ()
-at' = lexc "@"
--}
-
-comma :: Parser ()
-comma = lexc " "
-
-dot4 :: Parser ()
-dot4 = lexc "::"
-
 literal :: Parser T.Text
 literal = lexeme $ choice [lit '"', lit '\'']  
         where 
@@ -75,7 +59,7 @@ step :: Parser Step
 step = choice [
           choiceConst [("..", Step Parent (NameTest Nothing Nothing) Nothing), (".", Step Self (NameTest Nothing Nothing) Nothing)]
         , Step <$> choice [ lexc "@" *> pure Attribute 
-                           , axisName <* dot4 
+                           , axisName <* lexc "::" 
                            , pure Child ] <*> nodeTest <*> optionMaybe predicate
     ]
         
@@ -169,7 +153,7 @@ filterExpr = FE <$> pe <*> many predicate
         pe = choice [ VR <$> (lexc "$" *> qName)
                     , Expr <$> bracket expr
                     , Num <$> numberXP
-                    , FC <$> qName <*> bracket (expr `sepBy` comma)
+                    , FC <$> qName <*> bracket (expr `sepBy` lexc ",")
                     , Lit <$> literal ]
      
 {-
