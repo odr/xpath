@@ -82,14 +82,14 @@ axisName        = choiceConst
 nodeTest :: Parser NodeTest                
 nodeTest        = choice
                 [ choiceConst [("*", NameTest Nothing Nothing)]
-                , choice [ NameTest <$> (Just <$> ncName) <*> (lexc ":" *> choice [ lexc "*" *> pure Nothing
-                                                                                    , Just <$> ncName ])
-                         , NameTest Nothing <$> (Just <$> ncName) ]
                 , choiceBracket [ ("comment", Comment)
                                 , ("node", Node)
                                 , ("text", Text)
                                 , ("processing-instruction", ProcIns Nothing) ]                 
-                , (ProcIns . Just) <$> (lexc "processing-instruction" *> bracket literal) ]
+                , (ProcIns . Just) <$> (lexc "processing-instruction" *> bracket literal)
+                , choice [ NameTest <$> (Just <$> ncName) <*> (lexc ":" *> choice [ lexc "*" *> pure Nothing
+                                                                                    , Just <$> ncName ])
+                         , NameTest Nothing <$> (Just <$> ncName) ] ]
     where
         choiceBracket :: [(T.Text, a)] -> Parser a 
         choiceBracket = choice . map (\(a,b) -> b <$ (lexc a *> bracket spaces))
@@ -119,29 +119,28 @@ qName = (\n1 n2 -> Name { nameLocalName = n2
 predicate :: Parser Expr
 predicate = square expr
 
--- chainExp e1 e2 xs = choice $ map (\(t,c) -> c <$> (e2 <* lexc t) <*> e1) xs ++ [e2]
-
-chainExp' :: Parser a -> [[(T.Text, a -> a -> a)]] -> Parser a
-chainExp' p zs = go zs 
+chainExp :: Parser a -> [[(T.Text, a -> a -> a)]] -> Parser a
+chainExp p zs = go zs 
     where
         go [] = p
-        go xs@(x:xs') = choice $ map (\(t,c) -> c <$> (go xs' <* lexc t) <*> go xs) x ++ [go xs']
+        go xs@(x:xs') = go xs' >>= \r -> choice (map (\(t,c) -> lexc t *> (c r <$> go xs)) x ++ [pure r])
 
 expr :: Parser Expr
-expr = chainExp' unaryExpr 
+expr = chainExp unaryExpr 
                 [ [("or", (:||:))]
                 , [("and", (:&&:))]
-                , [("=", (:=:)), ("!=", (:!=:))]
-                , [("<", (:<:)), (">", (:>:)), ("<=", (:<=:)), (">=", (:>=:))]
+                , [("!=", (:!=:)), ("=", (:=:))]
+                , [("<=", (:<=:)), (">=", (:>=:)), ("<", (:<:)), (">", (:>:))]
                 , [("+", (:+:)), ("-", (:-:))]
-                , [("*", (:*:)), ("div", Div), ("mod", Mod)] ]
+                , [("*", (:*:)), ("div", Div), ("mod", Mod)] 
+                ]
            
 unaryExpr :: Parser Expr     
 unaryExpr = choice [ (foldl' (\a _ -> not a) False <$> many (lexc "-")) >>= guard >> (Negate <$> unionExpr)
                    , unionExpr ]
                    
 unionExpr :: Parser Expr
-unionExpr = chainExp' pathExpr [[("|", (:|:))]]
+unionExpr = chainExp pathExpr [[("|", (:|:))]]
 
 pathExpr :: Parser Expr
 pathExpr = choice [ EFE <$> filterExpr <*> many ((,) <$> abb <*> step)
@@ -153,197 +152,5 @@ filterExpr = FE <$> pe <*> many predicate
         pe = choice [ VR <$> (lexc "$" *> qName)
                     , Expr <$> bracket expr
                     , Num <$> numberXP
-                    , FC <$> qName <*> bracket (expr `sepBy` lexc ",")
+                    , FC <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
                     , Lit <$> literal ]
-     
-{-
-orExpr = chainExp orExpr andExpr [("or", (:||:))]
-    {- 
-        choice [ (:||:) <$> (andExpr <* lexc "or") <*> orExpr
-                , andExpr ]
-    -}
-                
-andExpr = chainExp andExpr eqExpr [("and", (:&&:))]
-             
-eqExpr = chainExp eqExpr relExpr [("=", (:=:)), ("!=", (:!=:))]
-
-relExpr = chainExp relExpr addExpr [("<", (:<:)), (">", (:>:)), ("<=", (:<=:)), (">=", (:>=:))]
--}
-
-{-
-predicate :: Parser OrExpr
-predicate = square orExpr
-data LocationPath' = LP' [(Abb, Step')]
-            deriving Show
-
--- . => Step Self Any Nothing; .. => Step Parent Any Nothing
-data Step'  = Step' AxisName NodeTest (Maybe OrExpr)
-            deriving Show
-
-newtype OrExpr = OE [AndExpr] deriving Show
-newtype AndExpr = AE [EqExpr] deriving Show
-data ChainExpr exp chainOp = ChainExpr exp [(chainOp, exp)] deriving Show
-data EqOp = (:=) | (:!=) deriving Show
-type EqExpr = ChainExpr RelExpr EqOp
-data RelOp = (:<) | (:>) | (:<=) | (:>=) deriving Show
-type RelExpr = ChainExpr AddExpr RelOp
-data AddOp = (:+) | (:-) deriving Show
-type AddExpr = ChainExpr MulExpr AddOp
-data MulOp = (:*) | Div | Mod deriving Show
-type MulExpr = ChainExpr UnaryExpr MulOp
-data UnaryExpr = UEP UnionExpr | UEN UnionExpr deriving Show
-newtype UnionExpr = UE [PathExpr] deriving Show
-data PathExpr = PELP LocationPath'
-                | PEFE FilterExpr' [(Abb, Step')]
-                deriving Show
-data FilterExpr' = FE' PrimaryExpr' [OrExpr]
-            deriving Show
-                  
-data PrimaryExpr' = VR' Name
-                   | Expr' OrExpr
-                   | Lit' T.Text
-                   | Num' Pico
-                   | FC' Name [OrExpr] 
-            deriving Show
-
-orExpr :: Parser OrExpr                 
-orExpr = OE <$> andExpr `sepBy` lexc "or"
-andExpr :: Parser AndExpr
-andExpr = AE <$> eqExpr `sepBy` lexc "and"
-chain :: Parser e -> Parser op -> Parser (ChainExpr e op)
-chain pe pop = ChainExpr <$> pe <*> many ((,) <$> pop <*> pe)
-chain' :: Parser e -> [(T.Text, op)] -> Parser (ChainExpr e op)
-chain' pe = chain pe . choiceConst
-eqExpr :: Parser EqExpr
-eqExpr = chain' relExpr [("=", (:=)), ("/=", (:!=))]
-relExpr :: Parser RelExpr
-relExpr = chain' addExpr [("<", (:<)), (">", (:>)), ("<=", (:<=)), (">=", (:>=))]
-addExpr :: Parser AddExpr
-addExpr = chain' mulExpr [("+", (:+)), ("-", (:-))]
-mulExpr :: Parser MulExpr
-mulExpr = chain' unaryExpr [("*", (:*)), ("div", Div), ("mod", Mod)]
-unaryExpr :: Parser UnaryExpr
-unaryExpr = choice [ lexc "-" *> (unUe <$> unaryExpr)
-                   , UEP <$> unionExpr ]
-    where
-        unUe (UEP x) = UEN x 
-        unUe (UEN x) = UEP x 
-unionExpr :: Parser UnionExpr
-unionExpr = UE <$> pathExpr `sepBy` lexc "|"
-pathExpr :: Parser PathExpr
-pathExpr = choice [ PELP <$> locationPath
-                  , PEFE <$> filterExpr <*> many ((,) <$> abb <*> step) ]        
-    
-{-
-expr :: Parser Expr
-expr = choice [ ELP <$> locationPath
-              , EFE <$> filterExpr <*> many ((,) <$> abb <*> step)
-              ]
-    where
-        pathe = choice [ ELP <$> locationPath
-                    , EFE <$> filterExpr <*> many ((,) <$> abb <*> step) ]
-        unione = pathe `sepBy` lexc "|"
--}
-      
-filterExpr :: Parser FilterExpr'
-filterExpr = FE' <$> pe <*> many predicate
-    where 
-        pe = choice [ VR' <$> (lexc "$" *> qName)
-                    , Expr' <$> bracket orExpr
-                    , Lit' <$> literal
-                    , Num' <$> numberXP
-                    , FC' <$> qName <*> bracket (orExpr `sepBy` comma) ]
-traverseSecond :: (Functor f) => (a -> f b) -> (c,a) -> f (c,b)
-traverseSecond f (a,b) = (,) a <$> f b
-
-convertLP :: LocationPath' -> Either T.Text LocationPath
-convertLP (LP' zs) = LP <$> TR.traverse (traverseSecond convertStep) zs
-    where
-        convertStep (Step' an nt mbp) = Step an nt <$> (TR.traverse convertOr mbp)
-        convertOr :: OrExpr -> Either T.Text Expr  
-        convertOr (OE []) = Left "Invalid empty Or expression"
-        convertOr (OE [x]) = convertAnd x
-        convertOr (OE (x:xs)) = (:||:) <$> convertAnd x <*> convertOr (OE xs)
-        convertAnd (AE []) = Left "Invalid empty And expression"
-        convertAnd (AE [x]) = convertEq x
-        convertAnd (AE (x:xs)) = (:&&:) <$> convertEq x <*> convertAnd (AE xs)
-        convertChain f g ce = go ce
-            where 
-                go (ChainExpr x []) = f x
-                go (ChainExpr x ((c1,y) : xs))= g c1 <$> f x <*> go (ChainExpr y xs)
-        
-        convertEq ce = convertChain convertRel geq ce
-            where
-                geq (:=) = (:=:)
-                geq (:!=) = (:!=:)
-        convertRel = undefined
--}
-tests :: [T.Text]
-tests = [ "para"
-        , "*"
-        , "text()"
-        , "@name"
-        , "@*"
-        , "para[1]"
-        , "para[last()]"
-        , "*/para"
-        , "/doc/chapter[5]/section[2]"
-        , "chapter//para"
-        , "//para"
-        , "//olist/item"
-        , "."
-        , ".//"
-        , ".."
-        , "../@lang"
-        , "para[@type=\"warning\"]"
-        , "para[@type=\"warning\"][5]"
-        , "para[5][@type=\"warning\"]"
-        , "chapter[title=\"Introduction\"]"
-        , "chapter[title]"
-        , "employee[@secretary and @assistant]"
-         ]
-{-
-para находит элемент para, являющийся непосредственным потомком текущего узла контекста
-
-* находит все элементы, являющиеся непосредственными потомками текущего узла контекста
-
-text() находит все текстовые узлы, являющиеся непосредственными потомками текущего узла контекста
-
-@name выделяет атрибут name в текущем узле контекста
-
-@* находит все атрибуты текущего узла контекста
-
-para[1] находит первый непосредственный потомок para текущего узла контекста
-
-para[last()] находит последний непосредственный потомок para текущего узла контекста
-
-*/para находит все потомки во втором поколении para текущего узла контекста
-
-/doc/chapter[5]/section[2] в doc в пятом chapter находит второй section
-
-chapter//para собирает элементы para, являющиеся потомками элемента chapter, который является непосредственным потомком текущего узла контекста
-
-//para собирает все para, являющиеся потомками корневого узла документа, то есть находит все элементы para в том документе, где располагается текущий узел контекста
-
-//olist/item в документе, где располагается текущий узел контекста, находит все элементы item, имеющие родителем olist
-
-. выделяет текущий узел контекста
-
-.//para собирает элементы para, являющиеся потомками текущего узла контекста
-
-.. выделяет родителя текущего узла контекста
-
-../@lang выделяет атрибут lang, принадлежащий родителю текущего узла контекста
-
-para[@type="warning"] находит все непосредственные потомки para текущего узла контекста, имеющие атрибут type со значением warning
-
-para[@type="warning"][5] находит пятый по счету из непосредственных потомков para текущего узла контекста, имеющих атрибут type со значением warning
-
-para[5][@type="warning"] извлекает пятый непосредственный потомок para текущего узла контекста, если этот потомок имеет атрибут type со значением warning
-
-chapter[title="Introduction"] получает непосредственный потомок текущего узла контекста chapter, который в свою очередь имеет один или несколько непосредственных потомков title со строковым значением, равным Introduction
-
-chapter[title] находит непосредственный потомок chapter текущего узла контекста, который имеет один или несколько непосредственных потомков title
-
-employee[@secretary and @assistant] находит все непосредственные потомки employee данного узла контекста, которые имеют оба атрибута secretary и assistant
--}
