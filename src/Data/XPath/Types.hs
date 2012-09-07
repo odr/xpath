@@ -5,14 +5,14 @@ import qualified Data.Text as T
 import Data.XML.Types(Name)
 
 
-data Abb = (://) | (:/) | RLP
+data Abb = (://) | (:/)
             deriving Show
 
-data LocationPath = LP [(Abb, Step)]
+data LocationPath = LP (Maybe Step) [(Abb, Step)]
             deriving Show
 
 -- . => Step Self Any Nothing; .. => Step Parent Any Nothing
-data Step  = Step AxisName NodeTest (Maybe Predicate)
+data Step  = Step AxisName NodeTest [Predicate]
             deriving Show
             
 -- @ => Attribute

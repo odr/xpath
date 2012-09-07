@@ -50,17 +50,17 @@ numberXP :: Parser Pico
 numberXP  = lexeme rational
 
 locationPath :: Parser LocationPath
-locationPath = LP <$> many ((,) <$> abb <*> step)
+locationPath = LP <$> optionMaybe step <*> many ((,) <$> abb <*> step)
         
 abb :: Parser Abb
-abb = choiceConst [("//", (://)), ("/", (:/))] <|> pure RLP
+abb = choiceConst [("//", (://)), ("/", (:/))]
         
 step :: Parser Step
 step = choice [
-          choiceConst [("..", Step Parent (NameTest Nothing Nothing) Nothing), (".", Step Self (NameTest Nothing Nothing) Nothing)]
+          choiceConst [("..", Step Parent (NameTest Nothing Nothing) []), (".", Step Self (NameTest Nothing Nothing) [])]
         , Step <$> choice [ lexc "@" *> pure Attribute 
                            , axisName <* lexc "::" 
-                           , pure Child ] <*> nodeTest <*> optionMaybe predicate
+                           , pure Child ] <*> nodeTest <*> many predicate
     ]
         
 axisName :: Parser AxisName

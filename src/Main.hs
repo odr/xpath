@@ -6,7 +6,7 @@ import Text.XML.Stream.XPath
 import System.Environment
 
 main :: IO ()
-main = getArgs >>= mapM_ (\x -> putStrLn $ T.unpack x ++ "\t\t\t- " ++ show (parseXPath x)) . flip take tests . read . head
+main = getArgs >>= mapM_ (\x -> putStrLn $ T.unpack x ++ "\t\t\t- " ++ show (parseXPath x) ++ "\n\n") . flip take tests . read . head
 
 tests :: [T.Text]
 tests = [ "para"
