@@ -94,18 +94,34 @@ nodeTest        = choice
         choiceBracket :: [(T.Text, a)] -> Parser a 
         choiceBracket = choice . map (\(a,b) -> b <$ (lexc a *> bracket spaces))
         
+{-
 nameStartChar :: [Char]
 nameStartChar =  ['A'..'Z'] ++ "_" ++ ['a'..'z'] ++ ['\xC0'..'\xD6']  
                     ++ ['\xD8'..'\xF6'] ++ ['\xF8'..'\x2FF']  
                     ++ ['\x370'..'\x37D'] ++ ['\x37F'..'\x1FFF'] ++ ['\x200C'..'\x200D'] ++ ['\x2070'..'\x218F'] 
                     ++ ['\x2C00'..'\x2FEF'] ++ ['\x3001'..'\xD7FF'] ++ ['\xF900'..'\xFDCF'] ++ ['\xFDF0'..'\xFFFD'] 
                     ++ ['\x10000'..'\xEFFFF']
+-}
+                    
+isStartChar :: Char -> Bool
+isStartChar c   =  c == '_' || ci 'A' 'Z' || ci 'a' 'z' || ci '\xC0' '\xD6'   
+                || ci '\xD8' '\xF6'|| ci '\xF8' '\x2FF' 
+                || ci '\x370' '\x37D'|| ci '\x37F' '\x1FFF'|| ci '\x200C' '\x200D'|| ci '\x2070' '\x218F'
+                || ci '\x2C00' '\x2FEF'|| ci '\x3001' '\xD7FF'|| ci '\xF900' '\xFDCF'|| ci '\xFDF0' '\xFFFD'
+                || ci '\x10000' '\xEFFFF'
+    where
+        ci a b = c >= a && c <= b
 
-nameChar :: [Char]
-nameChar = nameStartChar ++ "-." ++ ['0'..'9'] ++ "\xB7" ++ ['\x0300'..'\x036F'] ++ ['\x203F'..'\x2040']
+-- nameChar :: [Char]
+-- nameChar = nameStartChar ++ "-." ++ ['0'..'9'] ++ "\xB7" ++ ['\x0300'..'\x036F'] ++ ['\x203F'..'\x2040']
+
+isNameChar :: Char -> Bool
+isNameChar c = isStartChar c || c `elem` "-.\xB7" || ci '0' '9' || ci '\x0300' '\x036F'|| ci '\x203F' '\x2040'
+    where
+        ci a b = c >= a && c <= b
 
 ncName :: Parser T.Text
-ncName = fmap T.pack $ (:) <$> oneOf nameStartChar <*> many (oneOf nameChar)
+ncName = fmap T.pack $ (:) <$> satisfy isNameChar <*> many (satisfy isNameChar)
 
 optionMaybe :: Parser a -> Parser (Maybe a)
 optionMaybe p = choice  [ Just <$> p, pure Nothing ]
