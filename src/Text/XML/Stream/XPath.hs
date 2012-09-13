@@ -50,20 +50,24 @@ numberXP :: Parser Pico
 numberXP  = lexeme rational
 
 locationPath :: Parser LocationPath
-locationPath = LP <$> optionMaybe step <*> many ((,) <$> abb <*> step)
+locationPath = LP <$> choice [spaces <*. "/" *> pure True, pure False] <*> steps
+
+steps :: Parser [Step]
+steps = concat <$> sepBy step (string "/")
         
-abb :: Parser Abb
-abb = choiceConst [("//", (://)), ("/", (:/))]
-        
-step :: Parser Step
-step = choice [
-          choiceConst [("..", Step Parent (NameTest Nothing Nothing) []), (".", Step Self (NameTest Nothing Nothing) [])]
-        , Step <$> choice [ lexc "@" *> pure Attribute 
-                           , axisName <* lexc "::" 
-                           , pure Child ] <*> nodeTest <*> many predicate
-    ]
-        
-axisName :: Parser AxisName
+step :: Parser [Step]
+step = choice [ string "/" >> spaces >> step' >>= \s -> return [Step DescendantOrSelf Node [], s]
+              , string "/" >> spaces >> return [Step DescendantOrSelf Node []]
+              , (:[]) <$> step' ]
+    where 
+        step' = choice [
+              lexc "@"  *> (Step Attribute <$> nodeTest <*> many predicate)
+              , lexc ".." *> pure (Step Parent (NameTest Nothing Nothing) [])
+              , lexc "."  *> pure (Step Self (NameTest Nothing Nothing) [])
+              , Step <$> (axisName <* lexc "::") <*> nodeTest <*> many predicate
+              , Step Child <$> nodeTest <*> many predicate ]
+
+axisName :: Parser Axis
 axisName        = choiceConst
                 [ ("ancestor-or-self", AncestorOrSelf)                
                 , ("ancestor", Ancestor)
@@ -94,15 +98,6 @@ nodeTest        = choice
         choiceBracket :: [(T.Text, a)] -> Parser a 
         choiceBracket = choice . map (\(a,b) -> b <$ (lexc a *> bracket spaces))
         
-{-
-nameStartChar :: [Char]
-nameStartChar =  ['A'..'Z'] ++ "_" ++ ['a'..'z'] ++ ['\xC0'..'\xD6']  
-                    ++ ['\xD8'..'\xF6'] ++ ['\xF8'..'\x2FF']  
-                    ++ ['\x370'..'\x37D'] ++ ['\x37F'..'\x1FFF'] ++ ['\x200C'..'\x200D'] ++ ['\x2070'..'\x218F'] 
-                    ++ ['\x2C00'..'\x2FEF'] ++ ['\x3001'..'\xD7FF'] ++ ['\xF900'..'\xFDCF'] ++ ['\xFDF0'..'\xFFFD'] 
-                    ++ ['\x10000'..'\xEFFFF']
--}
-                    
 isStartChar :: Char -> Bool
 isStartChar c   =  c == '_' || ci 'A' 'Z' || ci 'a' 'z' || ci '\xC0' '\xD6'   
                 || ci '\xD8' '\xF6'|| ci '\xF8' '\x2FF' 
@@ -111,9 +106,6 @@ isStartChar c   =  c == '_' || ci 'A' 'Z' || ci 'a' 'z' || ci '\xC0' '\xD6'
                 || ci '\x10000' '\xEFFFF'
     where
         ci a b = c >= a && c <= b
-
--- nameChar :: [Char]
--- nameChar = nameStartChar ++ "-." ++ ['0'..'9'] ++ "\xB7" ++ ['\x0300'..'\x036F'] ++ ['\x203F'..'\x2040']
 
 isNameChar :: Char -> Bool
 isNameChar c = isStartChar c || c `elem` "-.\xB7" || ci '0' '9' || ci '\x0300' '\x036F'|| ci '\x203F' '\x2040'
@@ -143,12 +135,12 @@ chainExp p zs = go zs
 
 expr :: Parser Expr
 expr = chainExp unaryExpr 
-                [ [("or", (:||:))]
-                , [("and", (:&&:))]
-                , [("!=", (:!=:)), ("=", (:=:))]
-                , [("<=", (:<=:)), (">=", (:>=:)), ("<", (:<:)), (">", (:>:))]
-                , [("+", (:+:)), ("-", (:-:))]
-                , [("*", (:*:)), ("div", Div), ("mod", Mod)] 
+                [ [("or", (EBinOp Or))]
+                , [("and", (EBinOp And))]
+                , [("!=", (EBinOp NEq)), ("=", (EBinOp Eq))]
+                , [("<=", (EBinOp LE)), (">=", (EBinOp GE)), ("<", (EBinOp Lt)), (">", (EBinOp Gt))]
+                , [("+", (EBinOp Plus)), ("-", (EBinOp Minus))]
+                , [("*", (EBinOp Mul)), ("div", EBinOp Div), ("mod", EBinOp Mod)] 
                 ]
            
 unaryExpr :: Parser Expr     
@@ -156,17 +148,68 @@ unaryExpr = choice [ (foldl' (\a _ -> not a) False <$> many (lexc "-")) >>= guar
                    , unionExpr ]
                    
 unionExpr :: Parser Expr
-unionExpr = chainExp pathExpr [[("|", (:|:))]]
+unionExpr = chainExp pathExpr [[("|", (EBinOp Union))]]
 
 pathExpr :: Parser Expr
-pathExpr = choice [ EFE <$> filterExpr <*> many ((,) <$> abb <*> step)
+pathExpr = choice [ EFE <$> primaryExpr <*> many predicate <*> choice ["/" .*> steps, pure []]
                   , ELP <$> locationPath ]
 
-filterExpr :: Parser FilterExpr
-filterExpr = FE <$> pe <*> many predicate
-    where 
-        pe = choice [ VR <$> (lexc "$" *> qName)
-                    , Expr <$> bracket expr
-                    , Num <$> numberXP
-                    , FC <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
-                    , Lit <$> literal ]
+primaryExpr :: Parser PrimaryExpr
+primaryExpr = choice [ VR <$> (lexc "$" *> qName)
+                     , Expr <$> bracket expr
+                     , Num <$> numberXP
+                     , FC <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
+                     , Lit <$> literal ]
+                    
+{-
+canonLP :: LocationPathA -> LocationPath AxisForward
+canonLP (LP mbs xs) = LP (canonStep <$> mbs) ((canonStep <$>) <$> xs)
+
+toForward :: AxisName -> Maybe AxisForward
+toForward Child = Just AFChild
+toForward Descendant = Just AFDescendant
+toForward Self = Just AFSelf
+toForward FollowingSibling = Just AFFollowingSibling
+toForward Following = Just AFFollowing
+toForward DescendantOrSelf = Just AFDescendantOrSelf
+toForward Attribute = Just AFAttribute
+toForward Namespace = Just AFNamespace
+toForward _ = Nothing
+
+canonStep :: StepA -> Step AxisForward
+canonStep (Step a nt exprs) = case toForward a of
+    Just x -> Step x nt (canonExpr <$> exprs)
+    Nothing -> case a of
+        Parent | 
+        Ancestor | 
+        Preceding | 
+        PrecedingSibling | 
+        AncestorOrSelf
+-}
+
+{-
+absoluteLP :: LocationPathA -> LocationPathA
+absoluteLP (LP Nothing xs) = LP Nothing ((absoluteStep <$>) <$> xs)
+
+absoluteStep :: StepA -> StepA
+absoluteStep (Step a nt xs)= Step a nt $ absoluteExpr <$> xs
+
+absoluteExpr :: ExprA -> ExprA
+absoluteExpr (ELP lp) = ELP $ absoluteLP lp
+absoluteExpr (EFE fe xs = EFE absoluteExpr fe
+           | Expr a :+: Expr a
+           | Expr a :-: Expr a
+           | Negate (Expr a)
+           | Expr a :*: Expr a
+           | Expr a :|: Expr a
+           | Div (Expr a) (Expr a)
+           | Mod (Expr a) (Expr a)
+           | Expr a :=: Expr a
+           | Expr a :!=: Expr a
+           | Expr a :<: Expr a 
+           | Expr a :<=: Expr a
+           | Expr a :>: Expr a  
+           | Expr a :>=: Expr a
+           | Expr a :||: Expr a
+           | Expr a :&&: Expr a
+-}            
