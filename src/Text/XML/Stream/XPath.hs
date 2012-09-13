@@ -50,11 +50,15 @@ numberXP :: Parser Pico
 numberXP  = lexeme rational
 
 locationPath :: Parser LocationPath
-locationPath = LP <$> choice [spaces <*. "/" *> pure True, pure False] <*> steps
+locationPath = choice [ spaces <*. "/" *> (LP True <$> steps)
+                      , LP False <$> steps1 ]
 
 steps :: Parser [Step]
 steps = concat <$> sepBy step (string "/")
         
+steps1 :: Parser [Step]
+steps1 = concat <$> sepBy1 step (string "/")
+
 step :: Parser [Step]
 step = choice [ string "/" >> spaces >> step' >>= \s -> return [Step DescendantOrSelf Node [], s]
               , string "/" >> spaces >> return [Step DescendantOrSelf Node []]
