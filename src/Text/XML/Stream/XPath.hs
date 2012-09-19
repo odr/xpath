@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Text.XML.Stream.XPath(locationPath, parseXPath) where
+module Text.XML.Stream.XPath(locationPath, parseXPath, parseXPathExpr) where
 
 -- import Control.Arrow
 import Control.Applicative
@@ -13,6 +13,9 @@ import Data.XPath.Types
 
 parseXPath :: T.Text -> Either String LocationPath
 parseXPath = parseOnly locationPath
+
+parseXPathExpr :: T.Text -> Either String Expr
+parseXPathExpr = parseOnly expr
                   
 spaces :: Parser ()
 spaces = (many $ oneOf "\x20\x9\xD\xA") *> return ()
