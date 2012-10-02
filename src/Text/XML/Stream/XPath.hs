@@ -1,21 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Text.XML.Stream.XPath(locationPath, parseXPath, parseXPathExpr) where
+module Text.XML.Stream.XPath(parseXPath) where
 
 -- import Control.Arrow
 import Control.Applicative
 import Control.Monad(guard)
 import Data.Attoparsec.Text
-import Data.Fixed(Pico)
 import Data.List(foldl')
 import qualified Data.Text as T
 import Data.XML.Types(Name(..))
 import Data.XPath.Types
 
-parseXPath :: T.Text -> Either String LocationPath
-parseXPath = parseOnly locationPath
-
-parseXPathExpr :: T.Text -> Either String Expr
-parseXPathExpr = parseOnly expr
+parseXPath :: T.Text -> Either String Expr
+parseXPath = parseOnly expr
                   
 spaces :: Parser ()
 spaces = (many $ oneOf "\x20\x9\xD\xA") *> return ()
@@ -49,12 +45,14 @@ noneOf xs = satisfy (`notElem`xs)
 oneOf :: String -> Parser Char
 oneOf xs = satisfy (`elem`xs)
 
-numberXP :: Parser Pico
+numberXP :: Parser Double
 numberXP  = lexeme rational
 
+{-
 locationPath :: Parser LocationPath
 locationPath = choice [ spaces <*. "/" *> (LP True <$> steps)
                       , LP False <$> steps1 ]
+-}
 
 steps :: Parser [Step]
 steps = concat <$> sepBy step (string "/")
@@ -158,65 +156,13 @@ unionExpr :: Parser Expr
 unionExpr = chainExp pathExpr [[("|", (EBinOp Union))]]
 
 pathExpr :: Parser Expr
-pathExpr = choice [ EFE <$> primaryExpr <*> many predicate <*> choice ["/" .*> steps, pure []]
-                  , ELP <$> locationPath ]
+pathExpr = EPE <$> primaryExpr <*> many predicate <*> choice ["/" .*> steps, pure []]
 
 primaryExpr :: Parser PrimaryExpr
-primaryExpr = choice [ VR <$> (lexc "$" *> qName)
+primaryExpr = choice [ choice [ spaces <*. "/" *> (LP True <$> steps)
+                              , LP False <$> steps1 ]
+                     , VR   <$> (lexc "$" *> qName)
                      , Expr <$> bracket expr
-                     , Num <$> numberXP
-                     , FC <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
-                     , Lit <$> literal ]
-                    
-{-
-canonLP :: LocationPathA -> LocationPath AxisForward
-canonLP (LP mbs xs) = LP (canonStep <$> mbs) ((canonStep <$>) <$> xs)
-
-toForward :: AxisName -> Maybe AxisForward
-toForward Child = Just AFChild
-toForward Descendant = Just AFDescendant
-toForward Self = Just AFSelf
-toForward FollowingSibling = Just AFFollowingSibling
-toForward Following = Just AFFollowing
-toForward DescendantOrSelf = Just AFDescendantOrSelf
-toForward Attribute = Just AFAttribute
-toForward Namespace = Just AFNamespace
-toForward _ = Nothing
-
-canonStep :: StepA -> Step AxisForward
-canonStep (Step a nt exprs) = case toForward a of
-    Just x -> Step x nt (canonExpr <$> exprs)
-    Nothing -> case a of
-        Parent | 
-        Ancestor | 
-        Preceding | 
-        PrecedingSibling | 
-        AncestorOrSelf
--}
-
-{-
-absoluteLP :: LocationPathA -> LocationPathA
-absoluteLP (LP Nothing xs) = LP Nothing ((absoluteStep <$>) <$> xs)
-
-absoluteStep :: StepA -> StepA
-absoluteStep (Step a nt xs)= Step a nt $ absoluteExpr <$> xs
-
-absoluteExpr :: ExprA -> ExprA
-absoluteExpr (ELP lp) = ELP $ absoluteLP lp
-absoluteExpr (EFE fe xs = EFE absoluteExpr fe
-           | Expr a :+: Expr a
-           | Expr a :-: Expr a
-           | Negate (Expr a)
-           | Expr a :*: Expr a
-           | Expr a :|: Expr a
-           | Div (Expr a) (Expr a)
-           | Mod (Expr a) (Expr a)
-           | Expr a :=: Expr a
-           | Expr a :!=: Expr a
-           | Expr a :<: Expr a 
-           | Expr a :<=: Expr a
-           | Expr a :>: Expr a  
-           | Expr a :>=: Expr a
-           | Expr a :||: Expr a
-           | Expr a :&&: Expr a
--}            
+                     , Num  <$> numberXP
+                     , FC   <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
+                     , Lit  <$> literal ]
