@@ -1,22 +1,20 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
--- import Control.Applicative
+import Data.XPath.Types(Expr)
 import qualified Data.Text as T
 import Text.XML.Stream.XPath
--- import Text.XML.Stream.Convert
 import System.Environment
 
 main :: IO ()
 main = getArgs >>= mapM_ (\x -> do
-        let lp = parseXPath x 
+        let lp = parseXPath x
         putStrLn $ T.unpack x ++ "\t\t\t- " ++ show lp ++ "\n\n"
---        putStrLn $ "Absolute:\t\t\t- " ++ show (toAbsolutePath [] <$> lp) ++ "\n\n"
     ) . flip take tests . read . head
 
 tests :: [T.Text]
 tests = [ "child::para"
-{-
+-- {-
         , "child::*"
         , "child::text()"
         , "child::node()"
@@ -40,9 +38,9 @@ tests = [ "child::para"
         , "preceding-sibling::chapter[position()=1]"
         , "/descendant::figure[position()=42]"
         , "/child::doc/child::chapter[position()=5]/child::section[position()=2]"
--}
+-- -}
         , "child::para[attribute::type=\"warning\"]"
-{-
+-- {-
         , "child::para[attribute::type='warning'][position()=5]"
         , "child::para[position()=5][attribute::type=\"warning\"]"
         , "child::chapter[child::title='Introduction']"
@@ -71,7 +69,7 @@ tests = [ "child::para"
         , "para[5][@type=\"warning\"]"
         , "chapter[title=\"Introduction\"]"
         , "chapter[title]"
--}
+-- -}
         , "employee[@secretary and @assistant]"
          ]
 {-

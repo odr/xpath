@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Text.XML.Stream.XPath(parseXPath) where
+module Text.XML.Stream.XPath where
+-- module Text.XML.Stream.XPath(parseXPath) where
 
 -- import Control.Arrow
 import Control.Applicative
@@ -50,8 +51,8 @@ numberXP  = lexeme rational
 
 {-
 locationPath :: Parser LocationPath
-locationPath = choice [ spaces <*. "/" *> (LP True <$> steps)
-                      , LP False <$> steps1 ]
+locationPath = choice [ spaces <*. "/" *> (LocPath True <$> steps)
+                      , LocPath False <$> steps1 ]
 -}
 
 steps :: Parser [Step]
@@ -61,16 +62,17 @@ steps1 :: Parser [Step]
 steps1 = concat <$> sepBy1 step (string "/")
 
 step :: Parser [Step]
-step = choice [ string "/" >> spaces >> step' >>= \s -> return [Step DescendantOrSelf Node [], s]
-              , string "/" >> spaces >> return [Step DescendantOrSelf Node []]
-              , (:[]) <$> step' ]
+step    = choice 
+        [ string "/" >> spaces >> step' >>= \s -> return [Step DescendantOrSelf Node [], s]
+        , string "/" >> spaces >> return [Step DescendantOrSelf Node []]
+        , (:[]) <$> step' ]
     where 
-        step' = choice [
-              lexc "@"  *> (Step Attribute <$> nodeTest <*> many predicate)
-              , lexc ".." *> pure (Step Parent (NameTest Nothing Nothing) [])
-              , lexc "."  *> pure (Step Self (NameTest Nothing Nothing) [])
-              , Step <$> (axisName <* lexc "::") <*> nodeTest <*> many predicate
-              , Step Child <$> nodeTest <*> many predicate ]
+        step'   = choice 
+                [ lexc "@"  *> (Step Attribute <$> nodeTest <*> many predicate)
+                , lexc ".." *> pure (Step Parent (NameTest Nothing Nothing) [])
+                , lexc "."  *> pure (Step Self (NameTest Nothing Nothing) [])
+                , Step <$> (axisName <* lexc "::") <*> nodeTest <*> many predicate
+                , Step Child <$> nodeTest <*> many predicate ]
 
 axisName :: Parser Axis
 axisName        = choiceConst
@@ -97,7 +99,7 @@ nodeTest        = choice
                                 , ("processing-instruction", ProcIns Nothing) ]                 
                 , (ProcIns . Just) <$> (lexc "processing-instruction" *> bracket literal)
                 , choice [ NameTest <$> (Just <$> ncName) <*> (lexc ":" *> choice [ lexc "*" *> pure Nothing
-                                                                                    , Just <$> ncName ])
+                                                                                  , Just <$> ncName ])
                          , NameTest Nothing <$> (Just <$> ncName) ] ]
     where
         choiceBracket :: [(T.Text, a)] -> Parser a 
@@ -125,8 +127,8 @@ optionMaybe p = choice  [ Just <$> p, pure Nothing ]
 
 qName :: Parser Name
 qName = (\n1 n2 -> Name { nameLocalName = n2
-                         , namePrefix = n1
-                         , nameNamespace = Nothing }
+                        , namePrefix = n1
+                        , nameNamespace = Nothing }
                 ) <$> optionMaybe (ncName <* lexc ":") <*> ncName
 
 predicate :: Parser Expr
@@ -140,29 +142,33 @@ chainExp p zs = go zs
 
 expr :: Parser Expr
 expr = chainExp unaryExpr 
-                [ [("or", (EBinOp Or))]
-                , [("and", (EBinOp And))]
-                , [("!=", (EBinOp NEq)), ("=", (EBinOp Eq))]
-                , [("<=", (EBinOp LE)), (">=", (EBinOp GE)), ("<", (EBinOp Lt)), (">", (EBinOp Gt))]
-                , [("+", (EBinOp Plus)), ("-", (EBinOp Minus))]
-                , [("*", (EBinOp Mul)), ("div", EBinOp Div), ("mod", EBinOp Mod)] 
+                [ [("or"	, (BinOp Or))]
+                , [("and"	, (BinOp And))]
+                , [("!="	, (BinOp NEq))	, ("="	, BinOp Eq)]
+                , [("<="	, (BinOp LE))	, (">="	, BinOp GE)	, ("<", BinOp Lt)	, (">", BinOp Gt)]
+                , [("+"		, (BinOp Plus))	, ("-"	, BinOp Minus)]
+                , [("*"		, (BinOp Mul))	, ("div", BinOp Div), ("mod", BinOp Mod)] 
                 ]
            
-unaryExpr :: Parser Expr     
+unaryExpr :: Parser Expr
 unaryExpr = choice [ (foldl' (\a _ -> not a) False <$> many (lexc "-")) >>= guard >> (Negate <$> unionExpr)
                    , unionExpr ]
                    
 unionExpr :: Parser Expr
-unionExpr = chainExp pathExpr [[("|", (EBinOp Union))]]
+unionExpr = chainExp pathExpr [[("|", BinOp Union)]]
 
 pathExpr :: Parser Expr
-pathExpr = EPE <$> primaryExpr <*> many predicate <*> choice ["/" .*> steps, pure []]
-
+pathExpr    = choice
+            [ ExRes <$> (ExResNum <$> numberXP)
+            , ExRes <$> (ExResText <$> literal) 
+            , PrimExpr <$> primaryExpr <*> many predicate <*> choice ["/" .*> steps, pure []] ]
+            
 primaryExpr :: Parser PrimaryExpr
-primaryExpr = choice [ choice [ spaces <*. "/" *> (LP True <$> steps)
-                              , LP False <$> steps1 ]
-                     , VR   <$> (lexc "$" *> qName)
-                     , Expr <$> bracket expr
-                     , Num  <$> numberXP
-                     , FC   <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []])
-                     , Lit  <$> literal ]
+primaryExpr = choice 
+            [ Var  <$> (lexc "$" *> qName)
+            , Expr <$> bracket expr
+            , FunC <$> qName <*> bracket (choice [expr `sepBy` lexc ",", pure []]) 
+            , choice    [ spaces <*. "/" *> (LocPath True <$> steps)
+                        , LocPath False <$> steps1 ] ]
+            -- , Num  <$> numberXP
+            -- , Lit  <$> literal ]

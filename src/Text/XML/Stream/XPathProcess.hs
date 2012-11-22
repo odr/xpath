@@ -9,7 +9,6 @@ import Data.Bifunctor
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Conduit
-import Data.Default
 import Data.Functor.Identity
 import Data.Maybe
 import Data.Monoid
@@ -74,20 +73,13 @@ processXPath xpe = runReaderT (evalStateT processXPathInt def) xpe
 processXPathInt :: Functor f => XPP f l u m r
 processXPathInt = undefined
 
-data ExprResult = ERN Double
-                  | ERT T.Text
-                  | ERB Bool
-                  | ERNo [[Event]]
-instance Default ExprResult where
-    def = ERNo []
-                      
-type ExprPartial = Either ExprResult Expr
+type ExprPartial node = Either (ExprResult node) Expr
 
-eRtoBool :: ExprResult -> Bool
-eRtoBool (ERN n) = n /= 0                  
-eRtoBool (ERT t) = not $ T.null t                  
-eRtoBool (ERB b) = b
-eRtoBool (ERNo xs) = not $ null xs
+eRtoBool :: ExprResult node -> Bool
+eRtoBool (ExResNum n)       = n /= 0                  
+eRtoBool (ExResText t)      = not $ T.null t                  
+eRtoBool (ExResBool b)      = b
+eRtoBool (ExResNodes xs)    = not $ null xs
 
 {-
 ePtoBool :: ExprPartial -> ExprPartial
@@ -97,18 +89,17 @@ ePtoBool p = p
 boolToNum :: Bool -> Double
 boolToNum b = if b then 1 else 0
 
-eRtoNum :: ExprResult -> Maybe Double
-eRtoNum (ERN n) = Just n                  
-eRtoNum (ERT t) = readMay $ T.unpack t                  
-eRtoNum (ERB b) = Just $ boolToNum b
-eRtoNum (ERNo xs) = listToMaybe xs >>= \es -> eRtoNum (ERT $ mconcat [toText ct | EventContent ct <- es])
+eRtoNum :: ExprResult [Event] -> Maybe Double
+eRtoNum (ExResNum n)    = Just n                  
+eRtoNum (ExResText t)   = readMay $ T.unpack t                  
+eRtoNum (ExResBool b)   = Just $ boolToNum b
+eRtoNum (ExResNodes xs) = listToMaybe xs >>= \es -> eRtoNum (ERT $ mconcat [toText ct | EventContent ct <- es])
     where
-        toText (ContentText t) = t
-        toText (ContentEntity t) = t
+        toText (ContentText t)      = t
+        toText (ContentEntity t)    = t
         
 --toComp :: ExprResult -> 
-
-calcExpr :: Event -> Expr -> ExprPartial
+calcExpr :: Event -> Expr -> ExprPartial [Event]
 calcExpr ev ex = case ex of
     EPE pe exs steps -> undefined
     EBinOp bo e1 e2 -> calcbo bo e1 e2
